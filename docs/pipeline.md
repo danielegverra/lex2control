@@ -30,15 +30,15 @@ Input:
 Output:
 
 - `sp800-53r5-control-catalog.xlsx`
-- `nist_controls_cleaned.csv`
-- `nist_controls_svo_v2.csv`
 - `nist_controls_svo_v2_with_family.csv`
+- `diagnostics/nist_phase1_summary.json`
+- `diagnostics/nist_phase1_family_counts.csv`
 
 Scopo:
 
 - estrarre i controlli rilevanti;
-- pulire il testo;
-- aggiungere feature linguistiche;
+- pulire il testo in modo controllato;
+- aggiungere solo feature linguistiche SVO v2;
 - assegnare la famiglia NIST.
 
 ## Fase 2: NIS2 preprocessing

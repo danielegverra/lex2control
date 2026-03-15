@@ -58,8 +58,9 @@ Throughout the execution, the pipeline produces and relies on several key files 
 
 ### NIST Artifacts
 - `sp800-53r5-control-catalog.xlsx`
-- `nist_controls_cleaned.csv`
-- `nist_controls_svo_v2.csv` (and `_with_family.csv`)
+- `nist_controls_svo_v2_with_family.csv`
+- `diagnostics/nist_phase1_summary.json`
+- `diagnostics/nist_phase1_family_counts.csv`
 
 ### NIS2 Artifacts
 - `nis2_directive.html`

@@ -1,4 +1,5 @@
 import json
+import textwrap
 from pathlib import Path
 
 
@@ -14,20 +15,22 @@ def save_notebook(path: Path, notebook: dict) -> None:
 
 
 def markdown_cell(text: str) -> dict:
+    content = textwrap.dedent(text).strip()
     return {
         "cell_type": "markdown",
         "metadata": {},
-        "source": [line + "\n" for line in text.strip().splitlines()],
+        "source": [line + "\n" for line in content.splitlines()],
     }
 
 
 def code_cell(text: str) -> dict:
+    content = textwrap.dedent(text).strip()
     return {
         "cell_type": "code",
         "execution_count": None,
         "metadata": {},
         "outputs": [],
-        "source": [line + "\n" for line in text.strip().splitlines()],
+        "source": [line + "\n" for line in content.splitlines()],
     }
 
 
@@ -36,6 +39,344 @@ def clear_outputs(notebook: dict) -> None:
         if cell.get("cell_type") == "code":
             cell["execution_count"] = None
             cell["outputs"] = []
+
+
+def build_phase1_cells() -> list:
+    return [
+        markdown_cell(
+            """
+            ## NIST preprocessing
+
+            Pipeline note:
+            - this notebook produces the canonical NIST artifact for the matching pipeline
+            - the only pipeline output is `nist_controls_svo_v2_with_family.csv`
+            - diagnostics are written separately under `diagnostics/`
+            """
+        ),
+        markdown_cell("📌 1. Setup runtime and shared paths"),
+        code_cell(
+            """
+            import importlib
+            import json
+            import re
+            import subprocess
+            import sys
+            from pathlib import Path
+
+            REQUIRED_PACKAGES = [
+                ("pandas", "pandas"),
+                ("requests", "requests"),
+                ("openpyxl", "openpyxl"),
+                ("spacy", "spacy"),
+            ]
+
+            for module_name, package_name in REQUIRED_PACKAGES:
+                try:
+                    importlib.import_module(module_name)
+                except ModuleNotFoundError:
+                    subprocess.check_call(
+                        [sys.executable, "-m", "pip", "install", "-q", package_name]
+                    )
+
+            MODEL_NAME = "en_core_web_md"
+            try:
+                importlib.import_module(MODEL_NAME)
+            except ModuleNotFoundError:
+                subprocess.check_call(
+                    [sys.executable, "-m", "spacy", "download", MODEL_NAME]
+                )
+
+            import pandas as pd
+            import requests
+            import spacy
+
+            BASE_DIR = Path.cwd()
+            RAW_XLSX = BASE_DIR / "sp800-53r5-control-catalog.xlsx"
+            CANONICAL_OUTPUT = BASE_DIR / "nist_controls_svo_v2_with_family.csv"
+            DIAGNOSTICS_DIR = BASE_DIR / "diagnostics"
+            DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+
+            nlp = spacy.load(MODEL_NAME)
+            nlp.max_length = 2_000_000
+
+            print(f"✅ Base directory: {BASE_DIR}")
+            print(f"✅ Canonical output: {CANONICAL_OUTPUT.name}")
+            print(f"✅ Diagnostics directory: {DIAGNOSTICS_DIR}")
+            """
+        ),
+        markdown_cell("📌 2. Download the NIST catalog with validation and local fallback"),
+        code_cell(
+            """
+            DOWNLOAD_URLS = [
+                "https://csrc.nist.gov/files/pubs/sp/800/53/r5/upd1/final/docs/sp800-53r5-control-catalog.xlsx",
+            ]
+
+            def validate_catalog(path: Path) -> bool:
+                try:
+                    workbook = pd.ExcelFile(path)
+                except Exception:
+                    return False
+                return bool(workbook.sheet_names)
+
+            def download_catalog(target: Path, urls: list[str]) -> Path:
+                errors = []
+                session = requests.Session()
+                session.headers.update({"User-Agent": "lex2control-phase1/1.0"})
+
+                for url in urls:
+                    tmp_path = target.with_suffix(".tmp")
+                    try:
+                        with session.get(url, stream=True, timeout=(15, 180)) as response:
+                            response.raise_for_status()
+                            with tmp_path.open("wb") as handle:
+                                for chunk in response.iter_content(chunk_size=1024 * 256):
+                                    if chunk:
+                                        handle.write(chunk)
+
+                        if not validate_catalog(tmp_path):
+                            raise ValueError("downloaded file is not a valid Excel workbook")
+
+                        tmp_path.replace(target)
+                        print(f"✅ Downloaded catalog from: {url}")
+                        return target
+                    except Exception as exc:
+                        errors.append(f"{url} -> {exc}")
+                        if tmp_path.exists():
+                            tmp_path.unlink()
+
+                if target.exists() and validate_catalog(target):
+                    print("⚠️ Download failed; using existing validated local workbook.")
+                    for err in errors:
+                        print("   ", err)
+                    return target
+
+                raise RuntimeError("Unable to obtain a valid NIST catalog workbook.\\n" + "\\n".join(errors))
+
+            catalog_path = download_catalog(RAW_XLSX, DOWNLOAD_URLS)
+            print(f"✅ Workbook ready at: {catalog_path}")
+            """
+        ),
+        markdown_cell("📌 3. Load controls and apply controlled text normalization"),
+        code_cell(
+            """
+            REQUIRED_SOURCE_COLUMNS = [
+                "Control Identifier",
+                "Control (or Control Enhancement) Name",
+                "Control Text",
+            ]
+
+            def load_controls_frame(path: Path) -> pd.DataFrame:
+                workbook = pd.ExcelFile(path)
+
+                for sheet_name in workbook.sheet_names:
+                    candidate = pd.read_excel(path, sheet_name=sheet_name)
+                    if set(REQUIRED_SOURCE_COLUMNS).issubset(candidate.columns):
+                        return candidate
+
+                raise ValueError("No worksheet contains the required NIST control columns.")
+
+            def normalize_control_text(text: str) -> str:
+                cleaned = str(text)
+                cleaned = cleaned.replace("\\r", " ").replace("\\n", " ")
+                cleaned = cleaned.replace("\\u00a0", " ")
+                cleaned = cleaned.replace("\\u2013", "-").replace("\\u2014", "-")
+                cleaned = re.sub(r"\\s+", " ", cleaned)
+                cleaned = re.sub(r"\\s+([,;:.])", r"\\1", cleaned)
+                return cleaned.strip()
+
+            df_raw = load_controls_frame(catalog_path)
+            df = (
+                df_raw[REQUIRED_SOURCE_COLUMNS]
+                .rename(
+                    columns={
+                        "Control Identifier": "Control ID",
+                        "Control (or Control Enhancement) Name": "Control Name",
+                    }
+                )
+                .dropna(subset=["Control Text"])
+                .copy()
+            )
+
+            for column in ["Control ID", "Control Name", "Control Text"]:
+                df[column] = df[column].astype(str).str.strip()
+
+            df = df[df["Control ID"] != ""].reset_index(drop=True)
+            df["Cleaned Text"] = df["Control Text"].map(normalize_control_text)
+            df = df[df["Cleaned Text"].str.len() > 5].reset_index(drop=True)
+
+            print(f"✅ Loaded {len(df)} NIST controls after normalization.")
+            df.head()
+            """
+        ),
+        markdown_cell("📌 4. Extract SVO v2 features and assign control families"),
+        code_cell(
+            """
+            FAMILY_LABELS = {
+                "AC": "Access Control",
+                "AT": "Awareness and Training",
+                "AU": "Audit and Accountability",
+                "CA": "Assessment, Authorization, and Monitoring",
+                "CM": "Configuration Management",
+                "CP": "Contingency Planning",
+                "IA": "Identification and Authentication",
+                "IR": "Incident Response",
+                "MA": "Maintenance",
+                "MAP": "Program Management",
+                "MEDIA": "Media Protection",
+                "MP": "Media Protection",
+                "PE": "Physical and Environmental Protection",
+                "PL": "Planning",
+                "PM": "Program Management",
+                "PS": "Personnel Security",
+                "PT": "Personally Identifiable Information Processing and Transparency",
+                "RA": "Risk Assessment",
+                "SA": "System and Services Acquisition",
+                "SC": "System and Communications Protection",
+                "SI": "System and Information Integrity",
+                "SR": "Supply Chain Risk Management",
+            }
+
+            SUBJECT_DEPS = {"nsubj", "nsubjpass", "csubj", "expl"}
+            OBJECT_DEPS = {"dobj", "obj", "pobj", "attr", "dative", "oprd"}
+            VERB_POS = {"VERB", "AUX"}
+
+            def ordered_unique(values: list[str]) -> list[str]:
+                seen = set()
+                ordered = []
+                for value in values:
+                    candidate = value.strip()
+                    if candidate and candidate not in seen:
+                        seen.add(candidate)
+                        ordered.append(candidate)
+                return ordered
+
+            def span_text(token) -> str:
+                return " ".join(part.text for part in token.subtree).strip()
+
+            def extract_svo_v2(text: str) -> pd.Series:
+                doc = nlp(text)
+
+                subjects = []
+                verbs = []
+                objects = []
+                noun_chunks = ordered_unique([chunk.text.strip() for chunk in doc.noun_chunks])
+
+                explicit_subject_present = any(token.dep_ in SUBJECT_DEPS for token in doc)
+
+                for token in doc:
+                    if token.pos_ not in VERB_POS:
+                        continue
+                    if token.dep_ == "aux" and token.head.pos_ == "VERB":
+                        continue
+
+                    token_subjects = []
+                    token_objects = []
+
+                    for child in token.children:
+                        if child.dep_ in SUBJECT_DEPS:
+                            token_subjects.append(span_text(child))
+                        elif child.dep_ in OBJECT_DEPS:
+                            token_objects.append(span_text(child))
+                        elif child.dep_ == "prep":
+                            for grandchild in child.children:
+                                if grandchild.dep_ == "pobj":
+                                    token_objects.append(span_text(grandchild))
+
+                    if (
+                        not token_subjects
+                        and not explicit_subject_present
+                        and token.dep_ == "ROOT"
+                        and token.tag_ in {"VB", "VBP"}
+                    ):
+                        token_subjects.append("organization")
+
+                    if token_subjects or token_objects:
+                        lemma = token.lemma_.lower().strip()
+                        if lemma:
+                            verbs.append(lemma)
+
+                    subjects.extend(token_subjects)
+                    objects.extend(token_objects)
+
+                return pd.Series(
+                    {
+                        "Subjects": ordered_unique(subjects),
+                        "Verbs": ordered_unique(verbs),
+                        "Objects": ordered_unique(objects),
+                        "Noun Chunks": noun_chunks,
+                    }
+                )
+
+            def tag_control_family(control_id: str) -> str:
+                family_code = control_id.split("-", 1)[0].strip().upper()
+                return FAMILY_LABELS.get(family_code, "Unknown")
+
+            svo_features = df["Cleaned Text"].apply(extract_svo_v2)
+            df_final = pd.concat([df, svo_features], axis=1)
+            df_final["Control Family"] = df_final["Control ID"].map(tag_control_family)
+
+            df_final = df_final[
+                [
+                    "Control ID",
+                    "Control Name",
+                    "Control Text",
+                    "Cleaned Text",
+                    "Subjects",
+                    "Verbs",
+                    "Objects",
+                    "Noun Chunks",
+                    "Control Family",
+                ]
+            ].copy()
+
+            df_final.to_csv(CANONICAL_OUTPUT, index=False)
+            print(f"✅ Saved canonical Phase 1 output to: {CANONICAL_OUTPUT.name}")
+            df_final.head()
+            """
+        ),
+        markdown_cell("📌 5. Generate diagnostics without creating extra pipeline artifacts"),
+        code_cell(
+            """
+            family_counts = (
+                df_final["Control Family"]
+                .value_counts(dropna=False)
+                .rename_axis("Control Family")
+                .reset_index(name="Count")
+                .sort_values(["Count", "Control Family"], ascending=[False, True])
+            )
+
+            diagnostics_summary = {
+                "controls": int(len(df_final)),
+                "unique_control_ids": int(df_final["Control ID"].nunique()),
+                "empty_cleaned_text": int(df_final["Cleaned Text"].eq("").sum()),
+                "controls_with_subjects": int(df_final["Subjects"].map(len).gt(0).sum()),
+                "controls_with_verbs": int(df_final["Verbs"].map(len).gt(0).sum()),
+                "controls_with_objects": int(df_final["Objects"].map(len).gt(0).sum()),
+                "controls_with_noun_chunks": int(df_final["Noun Chunks"].map(len).gt(0).sum()),
+                "unknown_family_labels": int(df_final["Control Family"].eq("Unknown").sum()),
+            }
+
+            family_counts_path = DIAGNOSTICS_DIR / "nist_phase1_family_counts.csv"
+            summary_path = DIAGNOSTICS_DIR / "nist_phase1_summary.json"
+
+            family_counts.to_csv(family_counts_path, index=False)
+            summary_path.write_text(json.dumps(diagnostics_summary, indent=2))
+
+            print(f"✅ Saved diagnostics summary to: {summary_path}")
+            print(f"✅ Saved family counts to: {family_counts_path}")
+            print(json.dumps(diagnostics_summary, indent=2))
+            family_counts.head(10)
+            """
+        ),
+    ]
+
+
+def refactor_phase1() -> None:
+    path = ROOT / "Phase 1_ NIST Rule Extraction.ipynb"
+    notebook = load_notebook(path)
+    notebook["cells"] = build_phase1_cells()
+    clear_outputs(notebook)
+    save_notebook(path, notebook)
 
 
 def refactor_phase2() -> None:
@@ -364,6 +705,7 @@ def refactor_phase4() -> None:
 
 
 def main() -> None:
+    refactor_phase1()
     refactor_phase2()
     refactor_phase3()
     refactor_phase4()
