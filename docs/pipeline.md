@@ -1,4 +1,4 @@
-# Pipeline Canonica
+# Lex2Control Pipeline
 
 ## Obiettivo
 

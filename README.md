@@ -1,18 +1,20 @@
-# Progetto Laurea
+# Lex2Control
 
-Pipeline sperimentale per:
+From NIS2 regulatory text to NIST-aligned compliance controls and GRC questions.
 
-1. estrarre e pulire requisiti NIS2 e controlli NIST SP 800-53;
-2. filtrare i contenuti tecnici rilevanti;
-3. eseguire il mapping NIS2 -> NIST;
-4. generare domande GRC;
-5. stimare un punteggio di compliance a partire dalle risposte.
+Lex2Control is a notebook-based pipeline for:
 
-## Stato del progetto
+1. extracting and cleaning NIS2 requirements and NIST SP 800-53 controls;
+2. filtering technical requirements;
+3. mapping NIS2 requirements to relevant NIST controls;
+4. generating GRC-style assessment questions;
+5. estimating a compliance score from questionnaire answers.
 
-Il repository mantiene i notebook Jupyter come interfaccia principale di lavoro, con esecuzione prevista su Google Colab quando servono GPU e download di modelli.
+## Project scope
 
-La pipeline canonica da seguire e documentare in tesi e' questa:
+The repository keeps Jupyter notebooks as the main execution interface, with Google Colab as the expected environment when GPU-backed model inference is needed.
+
+The canonical thesis pipeline is:
 
 1. `Phase 1_ NIST Rule Extraction.ipynb`
 2. `Phase 2_ NIS2 Rule Extraction.ipynb`
@@ -21,20 +23,21 @@ La pipeline canonica da seguire e documentare in tesi e' questa:
 5. `Phase 5_ Evaluation.ipynb`
 6. `Phase 6_ Testing.ipynb`
 
-Il metodo principale da considerare finale e' il `semantic matching`.
-Il `syntactic / SVO matching` resta utile come baseline esplorativa o esperimento preliminare.
+The final matching strategy is `semantic matching`.
+The `syntactic / SVO matching` flow is retained as a baseline and exploratory comparison.
 
-## Struttura
+## Repository contents
 
-- `README.md`: panoramica del progetto e ordine ufficiale di esecuzione.
-- `docs/pipeline.md`: definizione della pipeline canonica, input/output e criticita' note.
-- `requirements.txt`: dipendenze Python base per l'esecuzione locale o in Colab.
-- `.gitignore`: file da non versionare.
-- Notebook `.ipynb`: fasi operative della pipeline.
+- `README.md`: project overview and execution order.
+- `docs/pipeline.md`: canonical pipeline, official inputs/outputs, and known issues.
+- `requirements.txt`: base Python dependencies for local runs or Colab sessions.
+- `.gitignore`: generated files and local artifacts to keep out of version control.
+- `tools/refactor_notebooks.py`: helper script used to normalize notebook structure.
+- `.ipynb` notebooks: the operational phases of the pipeline.
 
-## File intermedi ufficiali
+## Canonical intermediate files
 
-I nomi ufficiali da usare nella documentazione e nelle prossime rifattorizzazioni sono:
+The main outputs currently treated as official are:
 
 - `sp800-53r5-control-catalog.xlsx`
 - `nist_controls_cleaned.csv`
@@ -50,20 +53,18 @@ I nomi ufficiali da usare nella documentazione e nelle prossime rifattorizzazion
 - `nist_controls_questions_answers.csv`
 - `nis2_compliance_results.csv`
 
-Nota: alcuni notebook attuali usano ancora nomi non coerenti come `nis2_technical_filtered.csv`. Nelle prossime modifiche questi riferimenti vanno riallineati ai nomi ufficiali sopra.
+## Running on Colab
 
-## Esecuzione su Colab
+Minimal operating rules:
 
-Linee guida minime:
+1. open the notebook for the phase you want to run;
+2. execute the dependency cell first;
+3. verify the required inputs and produced outputs for that phase;
+4. keep canonical outputs separate from exploratory notebook variants.
 
-1. caricare il notebook della fase desiderata;
-2. eseguire prima la cella delle dipendenze;
-3. verificare sempre input richiesti e output prodotti della fase;
-4. non mescolare output di varianti sperimentali con output della pipeline canonica.
+## Current limitations
 
-## Limiti attuali
-
-- pipeline ancora notebook-driven e non completamente riproducibile;
-- presenza di approcci alternativi nello stesso notebook;
-- soglie e modelli non ancora consolidati da una validazione forte;
-- assenza di una ground truth annotata per valutare il mapping.
+- the project is still notebook-driven rather than package-driven;
+- several methodological choices still need stronger validation;
+- there is no labelled gold standard yet for mapping evaluation;
+- some phases remain prototypical and should be presented as decision-support, not full automation.
