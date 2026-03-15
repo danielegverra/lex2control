@@ -1,0 +1,32 @@
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Data and outputs generated during experiments
+*.csv
+*.npy
+*.xlsx
+*.html
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+# Runtime folders
+images/
+immagini/
+test_results_phase2/
+test_results_matching/
