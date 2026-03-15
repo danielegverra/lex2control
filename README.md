@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="lex2control_icon.png" alt="Lex2Control Logo" width="200"/>
+</p>
+
 # Lex2Control
 
 From NIS2 regulatory text to NIST-aligned compliance controls and GRC questions.
